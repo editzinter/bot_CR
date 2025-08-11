@@ -35,3 +35,48 @@ class Archer(LogicEntity):
         self.target = RadiusTarget(self)
         self.attack = SingleAttack(self)
         self.movement = SimpleMovement(self)
+
+class Giant(LogicEntity):
+    """
+    Giant troop entity.
+    A tanky troop that targets buildings.
+    """
+    def __init__(self, team_id: int, x: int, y: int):
+        super().__init__(team_id, x, y)
+        self.stats = get_card_by_name("giant").stats
+        self.stats.team_id = team_id
+
+        # Logic components
+        self.target = RadiusTarget(self, target_buildings=True)
+        self.attack = SingleAttack(self)
+        self.movement = SimpleMovement(self)
+
+class Minion(LogicEntity):
+    """
+    Minion troop entity.
+    A fast, flying troop with low health.
+    """
+    def __init__(self, team_id: int, x: int, y: int):
+        super().__init__(team_id, x, y)
+        self.stats = get_card_by_name("minions").stats
+        self.stats.team_id = team_id
+
+        # Logic components
+        self.target = RadiusTarget(self)
+        self.attack = SingleAttack(self)
+        self.movement = SimpleMovement(self)
+
+class Archer(LogicEntity):
+    """
+    Archer troop entity.
+    A ranged troop with low health and moderate damage.
+    """
+    def __init__(self, team_id: int, x: int, y: int):
+        super().__init__(team_id, x, y)
+        self.stats = get_card_by_name("archer").stats
+        self.stats.team_id = team_id
+
+        # Logic components
+        self.target = RadiusTarget(self)
+        self.attack = SingleAttack(self)
+        self.movement = SimpleMovement(self)

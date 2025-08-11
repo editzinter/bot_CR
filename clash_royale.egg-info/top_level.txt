@@ -1,1 +1,10 @@
 clash_royale
+extended_logs
+extended_models
+extended_tensorboard
+extended_videos
+logs
+models
+tensorboard_logs
+test_logs
+test_models

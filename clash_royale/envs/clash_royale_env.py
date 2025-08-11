@@ -19,14 +19,29 @@ class ClashRoyaleEnv(gym.Env):
     """
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
-    def __init__(self, render_mode: Optional[str] = None, width: int = 18, height: int = 32):
+    def __init__(
+        self,
+        render_mode: Optional[str] = None,
+        width: int = 18,
+        height: int = 32,
+        deck1: Optional[List[str]] = None,
+        deck2: Optional[List[str]] = None,
+    ):
         super().__init__()
 
         self.width = width
         self.height = height
         self.resolution = (128, 128)
+        self.deck1 = deck1
+        self.deck2 = deck2
 
-        self.game_engine = GameEngine(width=self.width, height=self.height, resolution=self.resolution)
+        self.game_engine = GameEngine(
+            width=self.width,
+            height=self.height,
+            resolution=self.resolution,
+            deck1=self.deck1,
+            deck2=self.deck2,
+        )
 
         # Action space: x * y * z = 18 * 32 * 4 = 2304
         self.action_space = spaces.Discrete(self.width * self.height * 4)
@@ -63,13 +78,44 @@ class ClashRoyaleEnv(gym.Env):
 
         return reward
 
+    def set_decks(self, deck1: List[str], deck2: List[str]):
+        """
+        Sets the decks for both players.
+        """
+        self.game_engine.player1.deck = deck1
+        self.game_engine.player2.deck = deck2
+        self.game_engine.player1.reset()
+        self.game_engine.player2.reset()
+
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Resets the environment to its initial state."""
         super().reset(seed=seed)
+        if options and "deck1" in options and "deck2" in options:
+            self.set_decks(options["deck1"], options["deck2"])
+
         self.game_engine.reset()
         observation = self.game_engine.make_image()
         info = self._get_info()
+        info["action_mask"] = self.game_engine.get_action_mask(player_id=0)
         return observation, info
+
+    def get_state(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary containing the current state of the game.
+        """
+        state = {
+            "entities": [],
+            "player1_elixir": self.game_engine.player1.elixir,
+            "player2_elixir": self.game_engine.player2.elixir,
+        }
+        for entity in self.game_engine.arena.entities:
+            state["entities"].append({
+                "id": entity.id,
+                "team_id": entity.team_id,
+                "health": entity.health,
+                "elixir_cost": entity.stats.elixir_cost,
+            })
+        return state
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """Executes one step in the environment."""
@@ -98,7 +144,6 @@ class ClashRoyaleEnv(gym.Env):
 
         # Check for terminal state
         terminated = self.game_engine.is_terminal()
-        print(f"terminated: {terminated}, type: {type(terminated)}")
         if terminated:
             winner = self.game_engine.get_terminal_value()
             if winner == 0:  # Player wins
@@ -108,6 +153,7 @@ class ClashRoyaleEnv(gym.Env):
 
         observation = self.game_engine.make_image()
         info = self._get_info()
+        info["action_mask"] = self.game_engine.get_action_mask(player_id=0)
         truncated = False  # No truncation in this environment
 
         return observation, reward, terminated, truncated, info

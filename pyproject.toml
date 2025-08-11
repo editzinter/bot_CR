@@ -12,7 +12,11 @@ description = "Clash Royale game engine"
 readme = "README.md"
 dependencies = [
   "pygame",
-  "gymnasium"
+  "gymnasium",
+  "stable-baselines3",
+  "sb3-contrib",
+  "torch",
+  "matplotlib"
 ]
 authors = [
   { name = "MSU AI Club", email = "msuaiclub@gmail.com" },

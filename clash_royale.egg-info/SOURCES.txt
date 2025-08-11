@@ -12,13 +12,17 @@ clash_royale/envs/clash_royale_env.py
 clash_royale/envs/game_engine/__init__.py
 clash_royale/envs/game_engine/arena.py
 clash_royale/envs/game_engine/card.py
+clash_royale/envs/game_engine/card_data.py
 clash_royale/envs/game_engine/game_engine.py
+clash_royale/envs/game_engine/opponent_ai.py
 clash_royale/envs/game_engine/player.py
 clash_royale/envs/game_engine/struct.py
 clash_royale/envs/game_engine/utils.py
 clash_royale/envs/game_engine/entities/__init__.py
 clash_royale/envs/game_engine/entities/entity.py
 clash_royale/envs/game_engine/entities/logic_entity.py
+clash_royale/envs/game_engine/entities/towers.py
+clash_royale/envs/game_engine/entities/troops.py
 clash_royale/envs/game_engine/logic/__init__.py
 clash_royale/envs/game_engine/logic/attack.py
 clash_royale/envs/game_engine/logic/movement.py

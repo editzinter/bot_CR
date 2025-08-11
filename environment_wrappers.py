@@ -119,32 +119,26 @@ class ObservationNormalizationWrapper(gym.ObservationWrapper):
         # Normalize from [0, 255] to [0, 1]
         return obs.astype(np.float32) / 255.0
 
-class ActionMaskingWrapper(gym.Wrapper):
+from stable_baselines3.common.vec_env import VecEnvWrapper
+
+class ActionMaskingWrapper(VecEnvWrapper):
     """
-    Mask invalid actions to improve learning efficiency.
+    A wrapper to handle action masking for vectorized environments.
     """
-    def __init__(self, env: gym.Env):
-        super().__init__(env)
-        self.valid_actions = None
+    def step_wait(self):
+        observations, rewards, dones, infos = self.venv.step_wait()
+        for i, info in enumerate(infos):
+            if "action_mask" in info:
+                self.action_masks[i] = info["action_mask"]
+        return observations, rewards, dones, infos
+
+    def reset(self):
+        obs = self.venv.reset()
+        # Does not return action mask on reset, so we need to get it from the info dict
+        return obs
     
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        self._update_valid_actions(info)
-        return obs, info
-    
-    def step(self, action):
-        # Ensure action is valid (for now, all actions are valid in our mock env)
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        self._update_valid_actions(info)
-        return obs, reward, terminated, truncated, info
-    
-    def _update_valid_actions(self, info: Dict[str, Any]):
-        """
-        Update the list of valid actions based on game state.
-        In a real implementation, this would check elixir costs, card availability, etc.
-        """
-        # For now, all actions are valid in our mock environment
-        self.valid_actions = list(range(self.action_space.n))
+    def action_masks(self) -> np.ndarray:
+        return self.venv.get_attr("action_mask")
 
 class EpisodeInfoWrapper(gym.Wrapper):
     """
@@ -187,6 +181,90 @@ class EpisodeInfoWrapper(gym.Wrapper):
             'actions_taken': [],
             'card_plays': [0, 0, 0, 0],  # Count for each card index
         }
+
+class DeckSamplingWrapper(gym.Wrapper):
+    """
+    Samples decks from a pool and assigns them to players at the start of each episode.
+    """
+    def __init__(self, env: gym.Env, deck_pool: list[list[str]]):
+        super().__init__(env)
+        self.deck_pool = deck_pool
+
+    def reset(self, **kwargs):
+        """
+        Samples two decks and passes them to the environment's reset method.
+        """
+        deck1 = random.choice(self.deck_pool)
+        deck2 = random.choice(self.deck_pool)
+        if 'options' not in kwargs:
+            kwargs['options'] = {}
+        kwargs['options']['deck1'] = deck1
+        kwargs['options']['deck2'] = deck2
+        return self.env.reset(**kwargs)
+
+class ClashRoyaleRewardWrapper(gym.Wrapper):
+    """
+    A wrapper that provides dense rewards for in-game events.
+    """
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+        self.prev_info = None
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self.prev_info = self._get_info_state()
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        current_info_state = self._get_info_state()
+        shaped_reward = self._shape_reward(reward, current_info_state)
+        self.prev_info = current_info_state
+
+        return obs, shaped_reward, terminated, truncated, info
+
+    def _get_info_state(self) -> Dict[str, Any]:
+        """
+        Gathers and returns the current state of the game from the environment.
+        """
+        return self.env.get_state()
+
+    def _shape_reward(self, base_reward: float, current_info: dict) -> float:
+        """
+        Calculates the shaped reward based on the change in game state.
+        """
+        shaped_reward = base_reward
+
+        # Calculate damage dealt and received
+        prev_entities = {e['id']: e for e in self.prev_info['entities']}
+        current_entities = {e['id']: e for e in current_info['entities']}
+
+        for entity_id, current_entity in current_entities.items():
+            if entity_id in prev_entities:
+                prev_entity = prev_entities[entity_id]
+                health_diff = current_entity['health'] - prev_entity['health']
+                if health_diff < 0:
+                    if current_entity['team_id'] == 0: # Player's troop took damage
+                        shaped_reward -= 0.01 * abs(health_diff)
+                    else: # Opponent's troop took damage
+                        shaped_reward += 0.01 * abs(health_diff)
+
+        # Calculate elixir trade
+        prev_player_elixir = self.prev_info.get('player1_elixir', 0)
+        current_player_elixir = current_info.get('player1_elixir', 0)
+        elixir_diff = current_player_elixir - prev_player_elixir
+        shaped_reward += 0.001 * elixir_diff
+
+        # Penalize losing troops
+        for entity_id, prev_entity in prev_entities.items():
+            if entity_id not in current_entities:
+                if prev_entity['team_id'] == 0: # Player's troop died
+                    shaped_reward -= 0.1 * prev_entity['elixir_cost']
+                else: # Opponent's troop died
+                    shaped_reward += 0.1 * prev_entity['elixir_cost']
+
+        return shaped_reward
 
 def create_enhanced_environment(env_id: str = "clash-royale", **env_kwargs):
     """

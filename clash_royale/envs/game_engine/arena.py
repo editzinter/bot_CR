@@ -9,7 +9,7 @@ import numpy.typing as npt
 from clash_royale.envs.game_engine.entities.entity import Entity, EntityCollection
 from clash_royale.envs.game_engine.card import Card
 from clash_royale.envs.game_engine.entities.towers import PrincessTower, KingTower
-from clash_royale.envs.game_engine.entities.troops import Knight, Archer
+from clash_royale.envs.game_engine.entities.troops import Knight, Archer, Giant, Minion
 
 if TYPE_CHECKING:
     from clash_royale.envs.game_engine.game_engine import GameEngine
@@ -68,6 +68,10 @@ class Arena(EntityCollection):
             entity_class = Knight
         elif card.name == 'archer':
             entity_class = Archer
+        elif card.name == 'giant':
+            entity_class = Giant
+        elif card.name == 'minions':
+            entity_class = Minion
 
         if entity_class:
             new_entity = entity_class(team_id=team_id, x=x, y=y)
@@ -76,13 +80,30 @@ class Arena(EntityCollection):
     def get_placement_mask(self, team_id: int) -> npt.NDArray[np.bool_]:
         """
         Returns a boolean mask of the arena where a player can place troops.
-        For simplicity, allows placement on the player's half of the arena.
         """
         mask = np.zeros(shape=(self.height, self.width), dtype=bool)
+
+        # Player's side
         if team_id == 0:
-            mask[:self.height // 2, :] = True  # Player can place on bottom half
+            mask[1:self.height // 2 - 1, 1:self.width-1] = True
+        else: # Opponent's side
+            mask[self.height // 2 + 1:self.height - 1, 1:self.width-1] = True
+
+        # Bridge placement
+        left_princess_destroyed = not any(isinstance(e, PrincessTower) and e.x == self.tower_pos[1-team_id]['left_princess'][0] for e in self.entities)
+        right_princess_destroyed = not any(isinstance(e, PrincessTower) and e.x == self.tower_pos[1-team_id]['right_princess'][0] for e in self.entities)
+
+        if team_id == 0:
+            if left_princess_destroyed:
+                mask[self.height // 2:self.height-1, 1:self.width//2] = True
+            if right_princess_destroyed:
+                mask[self.height // 2:self.height-1, self.width//2:self.width-1] = True
         else:
-            mask[self.height // 2:, :] = True  # Opponent can place on top half
+            if left_princess_destroyed:
+                mask[1:self.height // 2, 1:self.width//2] = True
+            if right_princess_destroyed:
+                mask[1:self.height // 2, self.width//2:self.width-1] = True
+
         return mask
 
     def tower_count(self, team_id: int) -> int:
@@ -91,9 +112,23 @@ class Arena(EntityCollection):
         """
         count = 0
         for entity in self.entities:
-            if entity.stats.team_id == team_id and isinstance(entity, (PrincessTower, KingTower)):
+            if entity.team_id == team_id and isinstance(entity, (PrincessTower, KingTower)):
                 count += 1
         return count
+
+    def get_attacking_entities(self, team_id: int) -> List[Entity]:
+        """
+        Returns a list of entities that are attacking the towers of the specified team.
+        """
+        attacking_entities = []
+        towers = [e for e in self.entities if e.team_id == team_id and isinstance(e, (KingTower, PrincessTower))]
+        opponent_team_id = 1 - team_id
+        opponent_entities = [e for e in self.entities if e.team_id == opponent_team_id]
+
+        for entity in opponent_entities:
+            if hasattr(entity, 'target_entity') and entity.target_entity in towers:
+                attacking_entities.append(entity)
+        return attacking_entities
 
     def lowest_tower_health(self, team_id: int) -> int:
         """
@@ -101,7 +136,7 @@ class Arena(EntityCollection):
         Used for tie-breaking.
         """
         lowest_health = float('inf')
-        towers = [e for e in self.entities if e.stats.team_id == team_id and isinstance(e, (PrincessTower, KingTower))]
+        towers = [e for e in self.entities if e.team_id == team_id and isinstance(e, (PrincessTower, KingTower))]
         if not towers:
             return 0
 

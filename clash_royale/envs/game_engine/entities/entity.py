@@ -18,14 +18,23 @@ class Entity:
     This class represents a basic entity present in the arena.
     It manages its own state, position, and stats.
     """
+    id_counter = 0
 
     def __init__(self, team_id: int, x: int = 0, y: int = 0) -> None:
+        self.id = Entity.id_counter
+        Entity.id_counter += 1
+
         self.team_id = team_id
         self.x: int = x
         self.y: int = y
 
         self.stats: Stats = Stats()
         self.collection: Arena | None = None
+
+    @property
+    def health(self) -> int:
+        """Returns the entity's current health."""
+        return self.stats.health
 
     @property
     def is_alive(self) -> bool:
