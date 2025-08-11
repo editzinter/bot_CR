@@ -1,64 +1,112 @@
 """
-High-level components for managing the simulation
-
-This file contains components that are intended to manage and preform the simulation.
-The components defined here are probably what end users want to utilize,
-as they will greatly simplify the simulation procedure.
+This file contains the Arena component, which manages the game board and all entities.
 """
 
 from typing import TYPE_CHECKING, List
-
 import numpy as np
 import numpy.typing as npt
 
 from clash_royale.envs.game_engine.entities.entity import Entity, EntityCollection
 from clash_royale.envs.game_engine.card import Card
+from clash_royale.envs.game_engine.entities.towers import PrincessTower, KingTower
+from clash_royale.envs.game_engine.entities.troops import Knight, Archer
 
 if TYPE_CHECKING:
-    # Only import for typechecking to prevent circular dependency
     from clash_royale.envs.game_engine.game_engine import GameEngine
 
 class Arena(EntityCollection):
     """
     Arena
 
-    This component handles high level logic for the Arena of the game.
-    No rendering occurs here, and information is sent
-    to the GameEngine component for final rendering.
-
-    We contain the entities that are in play,
-    and handle the process of simulating them.
-    Methods for adding and removing entities are also available.
-
-    TODO: Need to figure out frame independent timekeeping  
+    This component handles the high-level logic for the game Arena.
+    It contains all entities in play and manages their simulation and placement.
     """
 
-    def __init__(self, width: int =8, height: int=18) -> None:
-
+    def __init__(self, width: int = 18, height: int = 32, engine: 'GameEngine' = None) -> None:
         super().__init__()
+        self.width: int = width
+        self.height: int = height
+        self.engine: 'GameEngine' = engine
 
-        self.width: int = width  # Width of arena
-        self.height: int = height  # Height of arena
-
-        self.engine: GameEngine  # Game engine that is managing this arena
+        # Define tower positions
+        self.tower_pos = {
+            0: { # Player
+                'king': (width // 2, 4),
+                'left_princess': (width // 4, 6),
+                'right_princess': (width * 3 // 4, 6),
+            },
+            1: { # Opponent
+                'king': (width // 2, height - 4),
+                'left_princess': (width // 4, height - 6),
+                'right_princess': (width * 3 // 4, height - 6),
+            }
+        }
 
     def reset(self) -> None:
-        pass
+        """
+        Resets the arena to its starting state.
+        Clears all entities and places the towers for both teams.
+        """
+        self.entities.clear()
 
-    def step(self, frames: int=1) -> None:
-        pass
+        # Add towers for player (team_id=0)
+        self.add_entity(KingTower(0, *self.tower_pos[0]['king']))
+        self.add_entity(PrincessTower(0, *self.tower_pos[0]['left_princess']))
+        self.add_entity(PrincessTower(0, *self.tower_pos[0]['right_princess']))
 
-    def get_entities(self) -> List[Entity]:
-        return []
+        # Add towers for opponent (team_id=1)
+        self.add_entity(KingTower(1, *self.tower_pos[1]['king']))
+        self.add_entity(PrincessTower(1, *self.tower_pos[1]['left_princess']))
+        self.add_entity(PrincessTower(1, *self.tower_pos[1]['right_princess']))
 
-    def play_card(self, x: int, y: int, card: Card) -> None:
-        pass
+    def play_card(self, x: int, y: int, card: Card, team_id: int) -> None:
+        """
+        Plays a card by creating its corresponding entity in the arena.
+        """
+        entity_class = None
+        if card.name == 'knight':
+            entity_class = Knight
+        elif card.name == 'archer':
+            entity_class = Archer
 
-    def get_placement_mask(self) -> npt.NDArray[bool]:
-        return np.ones(shape=(32, 18), dtype=bool)
+        if entity_class:
+            new_entity = entity_class(team_id=team_id, x=x, y=y)
+            self.add_entity(new_entity)
 
-    def tower_count(self, player_id: int) -> int:
-        return 0
+    def get_placement_mask(self, team_id: int) -> npt.NDArray[np.bool_]:
+        """
+        Returns a boolean mask of the arena where a player can place troops.
+        For simplicity, allows placement on the player's half of the arena.
+        """
+        mask = np.zeros(shape=(self.height, self.width), dtype=bool)
+        if team_id == 0:
+            mask[:self.height // 2, :] = True  # Player can place on bottom half
+        else:
+            mask[self.height // 2:, :] = True  # Opponent can place on top half
+        return mask
 
-    def lowest_tower_health(self, player_id: int) -> int:
-        return 0
+    def tower_count(self, team_id: int) -> int:
+        """
+        Returns the number of standing towers for a given team.
+        """
+        count = 0
+        for entity in self.entities:
+            if entity.stats.team_id == team_id and isinstance(entity, (PrincessTower, KingTower)):
+                count += 1
+        return count
+
+    def lowest_tower_health(self, team_id: int) -> int:
+        """
+        Returns the lowest health percentage among all towers of a given team.
+        Used for tie-breaking.
+        """
+        lowest_health = float('inf')
+        towers = [e for e in self.entities if e.stats.team_id == team_id and isinstance(e, (PrincessTower, KingTower))]
+        if not towers:
+            return 0
+
+        for tower in towers:
+            # A simple health value, not percentage, is fine for tie-breaking
+            if tower.stats.health < lowest_health:
+                lowest_health = tower.stats.health
+        return int(lowest_health)

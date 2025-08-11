@@ -2,108 +2,60 @@
 Logic components for attacking.
 
 These components describe how an entity attacks another.
-We determine how an entity attacks the target
-(single? AOE?)
-We also describe what an attack does to an enemy, 
-be it do damage (default) or effect done to enemy (slowness)
 """
 
 from typing import TYPE_CHECKING
 
-from clash_royale.envs.game_engine.arena import Arena
-from clash_royale.envs.game_engine.entities.entity import Entity
 from clash_royale.envs.game_engine.utils import distance
 
 if TYPE_CHECKING:
-    # Only import for typechecking to prevent circular dependency
     from clash_royale.envs.game_engine.entities.logic_entity import LogicEntity
-
 
 class BaseAttack:
     """
     BaseAttack - Class all attacks should inherit!
-
-    TODO: We need to implement an attack delay,
-    that being the time between attacks so entities do not attack each frame.
-    Should we also have a delay that determines how long the attack so take?
     """
-
-    def __init__(self) -> None:
-
-        self.entity: LogicEntity  # Entity we are managing
-        self.arena: Arena  # Arena we are apart of
-
-        self.last_attack: int = 0  # Frame of last attack
-
-    def entity_distance(self, target_entity: Entity) -> float:
-        """
-        Determines the distance between an entity and ourselves.
-
-        :param target_entity: Entity to determine distance
-        :type target_entity: Entity
-        :return: Distance between entities
-        :rtype: float
-        """
-
-        return distance(self.entity.x, self.entity.y, target_entity.x, target_entity.y)
+    def __init__(self, entity: 'LogicEntity') -> None:
+        self.entity = entity
+        self.last_attack_frame: int = -1000  # Allow attacking immediately
 
     def can_attack(self) -> bool:
         """
-        Determines if this entity can attack.
-
-        We ensure the targeted entity is within our attack range,
-        and that the attack delay has been reached.
-
-        :return: True if we can attack, False if not
-        :rtype: bool
+        Determines if this entity can attack its current target.
         """
+        if self.entity.target_entity is None:
+            return False
 
-        # Determine if we have a target:
+        # Check if attack is off cooldown
+        current_frame = self.entity.collection.engine.scheduler.frame()
+        if current_frame < self.last_attack_frame + self.entity.stats.attack_delay:
+            return False
 
-        if self.entity.target_entity is not None:
+        # Check if target is in range
+        dist = distance(self.entity.x, self.entity.y, self.entity.target_entity.x, self.entity.target_entity.y)
+        if dist > self.entity.stats.attack_range:
+            return False
 
-            # Determine if our delay has passed:
+        return True
 
-            if self.entity.collection.engine.scheduler.frame() > (self.entity.stats.attack_delay + self.last_attack):
-
-                # Determine if entity is within range:
-
-                if self.entity.stats.attack_range <= self.entity_distance(self.entity.target_entity):
-
-                    # Within range, return True:
-
-                    return True
-
-        # Otherwise, return False:
-
-        return False
-
-    def attack(self):
+    def attack(self) -> None:
         """
-        Preforms an attack on a target, if any.
+        Performs an attack on a target, if possible.
         """
-
         raise NotImplementedError("Must implement this function!")
-
 
 class SingleAttack(BaseAttack):
     """
     SingleAttack - An attack on a singular entity.
-
-    We simply determine if the entity has a target,
-    determines if we are within the entity range,
-    and preforms an attack by subtracting health from damage.
+    Deals damage to the target's health.
     """
-
     def attack(self):
         """
-        Preforms an attack operation.
+        Performs an attack operation if possible.
         """
-
-        # Determine if we can attack:
-
         if self.can_attack():
-
-            # Otherwise, preform an attack:
-
+            # Deal damage to the target
             self.entity.target_entity.stats.health -= self.entity.stats.damage
+
+            # Reset attack cooldown
+            self.last_attack_frame = self.entity.collection.engine.scheduler.frame()

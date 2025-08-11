@@ -1,61 +1,14 @@
 """
-Various structures to be utilized   
+Various structures to be utilized
 """
 
 from __future__ import annotations
-
 import dataclasses
 
-class Scheduler:
-    """
-    Scheduling class to handle all timings,
-    such as attacks, elixir increase, etc.
-    For now, it will just store frame_count.
-    """
-    def __init__(self, fps: int =30):
-        self.fps: int = fps
-        self.frame_num: int = 0
-
-    def reset(self):
-        self.frame_num = 0
-
-    def step(self, frames: int=1):
-        self.frame_num += frames
-        # possibly check all event timings here
-
-    def frame(self) -> int:
-        return self.frame_num
-
-class GameScheduler:
-    """
-    Template class for game scheduling
-    """
-
-    def __init__(self, scheduler: Scheduler, fps: int=30) -> None:
-        self.scheduler: Scheduler = scheduler
-        self.fps: int = fps
-
-class DefaultScheduler(GameScheduler):
-    """
-    Class for default 1v1 game scheduling
-    """
-
-    def elixir_rate(self) -> float:
-        return 0
-
-    def game_state(self) -> int:
-        """
-        Function to get current game state:
-        ex: Game is over, double elixir, overtime, etc.
-        """
-
-        return 0
-
-    def is_game_over(self) -> bool:
-        return False
-
-    def is_overtime(self) -> bool:
-        return False
+# Game Ticks Per Second
+# This is the number of times the game logic will be updated per second.
+# All game timings are based on this value.
+GAME_TICKS_PER_SECOND = 30
 
 @dataclasses.dataclass(slots=True)
 class Stats:
@@ -65,27 +18,69 @@ class Stats:
     This class contains definitions for entity stats,
     which describe the current state of the entity (health),
     and behavior of the entity (speed, damage, range, ect.)
-
-    It is HIGHLY recommended to have all entities fall under
-    this uniform definition of stats.
-    This will make all entity interactions much easier.
-
-    We will describe some complicated stats here:
-
-    Attack range is the distance an entity can attack from.
-    If an entity is within this range, then it will preform an attack on the enemy.
-
-    Sight range is the distance an entity can detect enemies.
-    If an enemy is within the sight range, the entity will select it as a target.
-    The entity will then attempt to either attack (if within attack range)
-    or navigate to the entity until the entity is dead, or moves outside sight range.
     """
 
-    name: str = ''  # Name of entity
-    speed: int = 0  # Number of pixels per second (TODO: Find better unit?)
-    attack_range: int = 0  # Attack range, in a radius around the unit in pixels
-    sight_range: int = 0  # Sight range, in a radius around the unit in pixels
-    health: int = 0  # Health of unit
-    damage: int = 0  # Damage of unit
-    troop_size: int = 0  # Size of trop pixels, determines how troop will be rendered
-    attack_delay: int = 0  # Delay in frames each attack should take
+    name: str = ''
+    health: int = 0
+    damage: int = 0
+    attack_range: int = 0  # In grid units
+    sight_range: int = 0  # In grid units
+    speed: int = 0  # Grid units per second
+    attack_delay: int = 0  # In game ticks
+    elixir_cost: int = 0
+    troop_size: int = 1  # Radius in grid units
+    team_id: int = 0  # 0 for player, 1 for opponent
+
+class Scheduler:
+    """
+    Scheduling class to handle all timings.
+    """
+    def __init__(self):
+        self.frame_num: int = 0
+
+    def reset(self):
+        self.frame_num = 0
+
+    def step(self, frames: int = 1):
+        self.frame_num += frames
+
+    def frame(self) -> int:
+        return self.frame_num
+
+class GameScheduler:
+    """
+    Template class for game scheduling
+    """
+    def __init__(self, scheduler: Scheduler):
+        self.scheduler: Scheduler = scheduler
+
+class DefaultScheduler(GameScheduler):
+    """
+    Class for default 1v1 game scheduling
+    """
+    SINGLE_ELIXIR_FRAMES = 2 * 60 * GAME_TICKS_PER_SECOND  # 2 minutes
+    DOUBLE_ELIXIR_FRAMES = 1 * 60 * GAME_TICKS_PER_SECOND  # 1 minute
+    TOTAL_GAME_FRAMES = SINGLE_ELIXIR_FRAMES + DOUBLE_ELIXIR_FRAMES
+
+    def elixir_rate(self) -> float:
+        """
+        Returns the number of elixir points to generate per frame.
+        - 1 elixir every 2.8 seconds during single elixir time.
+        - 1 elixir every 1.4 seconds during double elixir time.
+        """
+        if self.scheduler.frame() < self.SINGLE_ELIXIR_FRAMES:
+            return 1.0 / (2.8 * GAME_TICKS_PER_SECOND)
+        else:
+            return 1.0 / (1.4 * GAME_TICKS_PER_SECOND)
+
+    def is_game_over(self) -> bool:
+        """
+        Determines if the game has ended based on time.
+        """
+        return self.scheduler.frame() >= self.TOTAL_GAME_FRAMES
+
+    def is_overtime(self) -> bool:
+        """
+        Determines if the game is in overtime (double elixir).
+        """
+        return self.scheduler.frame() >= self.SINGLE_ELIXIR_FRAMES

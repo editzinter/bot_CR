@@ -1,186 +1,169 @@
 """
-High-level components for managing the simulation
-
-This file contains components that are intended to manage and preform the simulation.
-The components defined here are probably what end users want to utilize,
-as they will greatly simplify the simulation procedure.
+This file contains the GameEngine, the central component for managing the simulation.
 """
 
 from __future__ import annotations
-
+from clash_royale.envs.game_engine.entities.towers import KingTower
 from typing import List, Tuple
 import numpy as np
 import numpy.typing as npt
 import pygame
+import random
 
 from clash_royale.envs.game_engine.arena import Arena
-from clash_royale.envs.game_engine.struct import Scheduler, GameScheduler, DefaultScheduler
+from clash_royale.envs.game_engine.struct import Scheduler, DefaultScheduler, GAME_TICKS_PER_SECOND
 from clash_royale.envs.game_engine.player import Player
 from clash_royale.envs.game_engine.card import Card
 
-
 class GameEngine:
     """
-    Arena - High-level simulation component
+    GameEngine - High-level simulation component
 
-    This component is the entry point for the entire simulation!
-    We manage and simulate any attached entities,
-    and render the final result in some way.
-
-    We contain the entities that are in play,
-    and handle the process of simulating them.
-    Methods for adding and removing entities are also available.
-
-    TODO: Need to figure out frame independent timekeeping  
+    This component is the entry point for the entire simulation.
+    It manages the arena, players, and game rules, and renders the final result.
     """
 
-    def __init__(self,
-                 deck1: List[str],
-                 deck2: List[str],
-                 width: int=18,
-                 height: int=32,
-                 resolution: Tuple[int, int]=(128, 128),
-                 fps: int=30
-                 ) -> None:
-        """
-        The game_engine should be initialized with settings such as resolution
-        and framerate, this shouldn't be used to initialize
-        any specific actual game, that will be handled in reset.
-        """
+    def __init__(self, width: int = 18, height: int = 32, resolution: Tuple[int, int] = (128, 128)) -> None:
+        self.width = width
+        self.height = height
+        self.resolution = resolution
 
-        self.width: int = width  # Width of arena
-        self.height: int = height  # Height of arena
-        self.resolution: Tuple[int, int] = resolution
-        self.fps: int = fps
+        # Define default decks
+        deck1 = ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"]
+        deck2 = ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"]
 
-        self.arena: Arena = Arena(width=self.width, height=self.height)
-        self.player1: Player = Player(deck1, fps)
-        self.player2: Player = Player(deck2, fps)
+        self.scheduler = Scheduler()
+        self.game_scheduler = DefaultScheduler(self.scheduler)
+        self.player1 = Player(deck1)
+        self.player2 = Player(deck2)
+        self.arena = Arena(width, height, self)
 
-        self.scheduler: Scheduler = Scheduler(fps) # counting frames
-        self.game_scheduler: DefaultScheduler = DefaultScheduler(self.scheduler) # determining elixir etc.
+        pygame.init()
+        self.screen = pygame.Surface(self.resolution)
 
     def reset(self) -> None:
         """
-        This should be called to reset the game engine
-        to its default/starting state.
-
-        Arena.reset() method missing.
-        Player.reset() method missing.
+        Resets the game engine to its starting state.
         """
-
-        self.arena.reset()
-        self.player1.reset(elixir=5)
-        self.player2.reset(elixir=5)
         self.scheduler.reset()
+        self.player1.reset()
+        self.player2.reset()
+        self.arena.reset()
 
-    def make_image(self, player_id: int) -> npt.NDArray[np.uint8]:
+    def make_image(self) -> npt.NDArray[np.uint8]:
         """
-        Asks the arena to render itself.
-
-        TODO: We need to figure out this procedure!
-        Arena should render any generic components,
-        and then ask the entities to render themselves.
-
-        individual sprite rendering methods required.
-        arena.get_entities() missing
+        Renders the current game state to an image (numpy array).
         """
+        # Simple gray background
+        self.screen.fill((100, 100, 100))
 
-        entities: List[Entity] = self.arena.get_entities()
-        canvas = pygame.Surface(size=self.resolution)
+        # Render entities
+        self.arena.render(self.screen)
 
-        #rendering logic goes here...
+        # Convert to numpy array and return
+        return np.array(pygame.surfarray.pixels3d(self.screen)).astype(np.uint8)
 
-        return np.array(pygame.surfarray.pixels3d(canvas))
-
-    def apply(self, player_id: int, action: Tuple[int, int, int] | None) -> None:
+    def apply_action(self, player_id: int, action: Tuple[int, int, int]) -> bool:
         """
-        Applies a given action to the environment, checks
-        for validity of the action via asserts.
+        Applies a given action for a player if it is legal.
+        Action is a tuple: (x, y, card_index_in_hand).
+        Returns True if the action was successful, False otherwise.
         """
-        if action is None:
+        player = self.player1 if player_id == 0 else self.player2
+        x, y, card_idx = action
+
+        if card_idx not in player.get_pseudo_legal_cards():
+            return False
+
+        placement_mask = self.arena.get_placement_mask(player_id)
+        if not placement_mask[y, x]:
+            return False
+
+        card_to_play = player.hand[card_idx]
+        player.play_card(card_idx)
+        self.arena.play_card(x, y, card_to_play, player_id)
+        return True
+
+    def _opponent_step(self) -> None:
+        """
+        A simple AI for the opponent (player 2).
+        Plays a random legal card at a random valid location.
+        """
+        legal_cards = self.player2.get_pseudo_legal_cards()
+        if not legal_cards:
             return
 
-        assert action[0] >= 0 and action[0] < self.width
-        assert action[1] >= 0 and action[1] < self.height
-        assert action[2] >= 0 and action[2] < 4
+        card_idx_to_play = random.choice(legal_cards)
 
-        curr_player: Player
-        if player_id == 0:
-            curr_player = self.player1
-        else:
-            curr_player = self.player2
+        placement_mask = self.arena.get_placement_mask(team_id=1)
+        valid_placements = np.argwhere(placement_mask)
+        if len(valid_placements) == 0:
+            return
 
-        card: Card = curr_player.hand[action[2]]
-        assert card.elixir <= curr_player.elixir
+        y, x = random.choice(valid_placements)
+        self.apply_action(player_id=1, action=(x, y, card_idx_to_play))
 
-        self.arena.play_card(action[0], action[1], card)
-        curr_player.play_card(action[2])
-
-    def step(self, frames: int=1) -> None:
+    def step(self) -> None:
         """
-        Steps through a number of frames,
-        applying simulations and updating required components.
+        Steps the simulation forward by one frame.
         """
+        self.scheduler.step()
+        elixir_rate = self.game_scheduler.elixir_rate()
+        self.player1.step(elixir_rate)
+        self.player2.step(elixir_rate)
+        self.arena.step()
+        self._opponent_step()
 
-        # update elixir first, order TBD.
-        elixir_rate: float = self.game_scheduler.elixir_rate()
-        self.player1.step(elixir_rate, frames)
-        self.player2.step(elixir_rate, frames)
-
-        self.arena.step(frames)
-        self.scheduler.step(frames)
-
-
-    def legal_actions(self, player_id: int) -> npt.NDArray[np.float64]:
+    def get_legal_actions_mask(self, player_id: int) -> npt.NDArray[np.bool_]:
         """
-        Returns a list of legal actions.
+        Returns a mask of all legal actions for the given player.
+        Shape: (height, width, num_cards_in_hand)
         """
-        actions = np.zeros(shape=(32, 18, 4), dtype=np.float64)
+        player = self.player1 if player_id == 0 else self.player2
+        mask = np.zeros(shape=(self.height, self.width, 4), dtype=bool)
 
-        hand: List[int]
-        if player_id == 0:
-            hand = self.player1.get_pseudo_legal_cards()
-        else:
-            hand = self.player2.get_pseudo_legal_cards()
+        placement_mask = self.arena.get_placement_mask(player_id)
+        legal_card_indices = player.get_pseudo_legal_cards()
 
-        placement_mask = self.arena.get_placement_mask()
-        for card_index in hand:
-            actions[placement_mask, card_index] = 1
+        for card_idx in legal_card_indices:
+            mask[:, :, card_idx] = placement_mask
 
-        return actions
+        return mask
 
     def is_terminal(self) -> bool:
         """
-        Determines if game has ended
+        Determines if the game has ended.
         """
         if self.game_scheduler.is_game_over():
             return True
 
-        if self.game_scheduler.is_overtime():
-            player1_val: int = self.arena.tower_count(0)
-            player2_val: int = self.arena.tower_count(1)
-            if player1_val != player2_val:
-                return True
+        # Check if a king tower is destroyed
+        king_towers_p1 = [e for e in self.arena.entities if isinstance(e, KingTower) and e.team_id == 0]
+        king_towers_p2 = [e for e in self.arena.entities if isinstance(e, KingTower) and e.team_id == 1]
+        if not king_towers_p1 or not king_towers_p2:
+            return True
 
         return False
 
-    def terminal_value(self) -> int:
+    def get_terminal_value(self) -> int:
         """
-        Returns side won, otherwise returns -1.
+        Returns the winner of the game: 0 for player 1, 1 for player 2, -1 for a draw.
         """
+        p1_towers = self.arena.tower_count(0)
+        p2_towers = self.arena.tower_count(1)
 
-        player1_val: int = self.arena.tower_count(0)
-        player2_val: int = self.arena.tower_count(1)
-        if player1_val == player2_val:
-            player1_val = self.arena.lowest_tower_health(0)
-            player2_val = self.arena.lowest_tower_health(1)
-
-        if player1_val > player2_val:
+        if p1_towers > p2_towers:
+            return 0
+        if p2_towers > p1_towers:
             return 1
 
-        if player2_val > player1_val:
-            return 0
+        # Tie-breaker: lowest tower health
+        p1_health = self.arena.lowest_tower_health(0)
+        p2_health = self.arena.lowest_tower_health(1)
 
-        if player1_val == player2_val:
-            return -1
+        if p1_health > p2_health:
+            return 0
+        if p2_health > p1_health:
+            return 1
+
+        return -1  # Draw
