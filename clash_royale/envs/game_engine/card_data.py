@@ -23,6 +23,24 @@ ARCHER_STATS = Stats(
     attack_delay=int(1.2 * GAME_TICKS_PER_SECOND),
 )
 
+GIANT_STATS = Stats(
+    health=3300,
+    damage=211,
+    attack_range=1,
+    sight_range=5,
+    speed=0.5,
+    attack_delay=int(1.5 * GAME_TICKS_PER_SECOND),
+)
+
+MINION_STATS = Stats(
+    health=190,
+    damage=84,
+    attack_range=2,
+    sight_range=5,
+    speed=1.5,
+    attack_delay=int(1.0 * GAME_TICKS_PER_SECOND),
+)
+
 # Tower Stats
 PRINCESS_TOWER_STATS = Stats(
     health=2500,
@@ -46,6 +64,8 @@ KING_TOWER_STATS = Stats(
 CARD_DATABASE = {
     "knight": Card(name="knight", elixir_cost=3, stats=KNIGHT_STATS),
     "archer": Card(name="archer", elixir_cost=3, stats=ARCHER_STATS),
+    "giant": Card(name="giant", elixir_cost=5, stats=GIANT_STATS),
+    "minions": Card(name="minions", elixir_cost=3, stats=MINION_STATS),
 
     # Towers are treated as special cards for instantiation
     "princess_tower": Card(name="princess_tower", elixir_cost=0, stats=PRINCESS_TOWER_STATS),

@@ -14,6 +14,7 @@ from clash_royale.envs.game_engine.arena import Arena
 from clash_royale.envs.game_engine.struct import Scheduler, DefaultScheduler, GAME_TICKS_PER_SECOND
 from clash_royale.envs.game_engine.player import Player
 from clash_royale.envs.game_engine.card import Card
+from clash_royale.envs.game_engine.opponent_ai import OpponentAI
 
 class GameEngine:
     """
@@ -23,19 +24,29 @@ class GameEngine:
     It manages the arena, players, and game rules, and renders the final result.
     """
 
-    def __init__(self, width: int = 18, height: int = 32, resolution: Tuple[int, int] = (128, 128)) -> None:
+    def __init__(
+        self,
+        width: int = 18,
+        height: int = 32,
+        resolution: Tuple[int, int] = (128, 128),
+        deck1: Optional[List[str]] = None,
+        deck2: Optional[List[str]] = None,
+    ) -> None:
         self.width = width
         self.height = height
         self.resolution = resolution
 
-        # Define default decks
-        deck1 = ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"]
-        deck2 = ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"]
+        # Define default decks if none are provided
+        if deck1 is None:
+            deck1 = ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"]
+        if deck2 is None:
+            deck2 = ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"]
 
         self.scheduler = Scheduler()
         self.game_scheduler = DefaultScheduler(self.scheduler)
         self.player1 = Player(deck1)
         self.player2 = Player(deck2)
+        self.opponent_ai = OpponentAI(self, player_id=1)
         self.arena = Arena(width, height, self)
 
         pygame.init()
@@ -86,22 +97,11 @@ class GameEngine:
 
     def _opponent_step(self) -> None:
         """
-        A simple AI for the opponent (player 2).
-        Plays a random legal card at a random valid location.
+        The opponent (player 2) takes a step, controlled by the OpponentAI.
         """
-        legal_cards = self.player2.get_pseudo_legal_cards()
-        if not legal_cards:
-            return
-
-        card_idx_to_play = random.choice(legal_cards)
-
-        placement_mask = self.arena.get_placement_mask(team_id=1)
-        valid_placements = np.argwhere(placement_mask)
-        if len(valid_placements) == 0:
-            return
-
-        y, x = random.choice(valid_placements)
-        self.apply_action(player_id=1, action=(x, y, card_idx_to_play))
+        action = self.opponent_ai.get_action()
+        if action:
+            self.apply_action(player_id=1, action=action)
 
     def step(self) -> None:
         """
@@ -114,10 +114,9 @@ class GameEngine:
         self.arena.step()
         self._opponent_step()
 
-    def get_legal_actions_mask(self, player_id: int) -> npt.NDArray[np.bool_]:
+    def get_action_mask(self, player_id: int) -> npt.NDArray[np.bool_]:
         """
-        Returns a mask of all legal actions for the given player.
-        Shape: (height, width, num_cards_in_hand)
+        Returns a flat mask of all legal actions for the given player.
         """
         player = self.player1 if player_id == 0 else self.player2
         mask = np.zeros(shape=(self.height, self.width, 4), dtype=bool)
@@ -128,7 +127,7 @@ class GameEngine:
         for card_idx in legal_card_indices:
             mask[:, :, card_idx] = placement_mask
 
-        return mask
+        return mask.flatten()
 
     def is_terminal(self) -> bool:
         """

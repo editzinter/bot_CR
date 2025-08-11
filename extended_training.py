@@ -12,7 +12,7 @@ import json
 import gymnasium
 import clash_royale
 import numpy as np
-from stable_baselines3 import PPO
+from sb3_contrib import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import (
     EvalCallback, CheckpointCallback, StopTrainingOnRewardThreshold, BaseCallback
@@ -23,6 +23,15 @@ import torch
 from environment_wrappers import create_enhanced_environment
 import matplotlib.pyplot as plt
 from datetime import datetime
+import random
+
+# Define a pool of decks for sampling
+DECK_POOL = [
+    ["knight", "archer", "giant", "minions", "knight", "archer", "giant", "minions"],
+    ["knight", "archer", "knight", "archer", "giant", "minions", "giant", "minions"],
+    ["giant", "minions", "giant", "minions", "giant", "minions", "giant", "minions"],
+    ["knight", "archer", "knight", "archer", "knight", "archer", "knight", "archer"],
+]
 
 class ExtendedTrainingCallback(BaseCallback):
     """
@@ -115,16 +124,18 @@ def create_optimized_environment():
     import gymnasium
     from environment_wrappers import (
         EpisodeInfoWrapper, RewardShapingWrapper,
-        ActionMaskingWrapper
+        ActionMaskingWrapper, DeckSamplingWrapper,
+        ClashRoyaleRewardWrapper
     )
 
     # Create base environment
     env = gymnasium.make("clash-royale", render_mode="rgb_array")
 
-    # Apply wrappers but skip problematic ones for CnnPolicy compatibility
-    # env = EpisodeInfoWrapper(env)
+    # Apply wrappers
+    env = DeckSamplingWrapper(env, DECK_POOL)
+    env = ClashRoyaleRewardWrapper(env)
+    env = EpisodeInfoWrapper(env)
     # env = RewardShapingWrapper(env)
-    # env = ActionMaskingWrapper(env)
     # Note: Skipping ObservationNormalizationWrapper and FrameStackWrapper
     # to maintain compatibility with CnnPolicy (needs uint8 [0,255] observations)
 
@@ -171,6 +182,9 @@ def train_extended_ppo():
         video_length=500
     )
     
+    # Add action masking wrapper
+    vec_env = ActionMaskingWrapper(vec_env)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"3. Using device: {device}")
     
@@ -246,7 +260,8 @@ def train_extended_ppo():
         model.learn(
             total_timesteps=config["total_timesteps"],
             callback=callbacks,
-            tb_log_name="extended_ppo_5M"
+            tb_log_name="extended_ppo_5M",
+            action_masks=vec_env.get_attr("action_mask")
         )
         
         training_time = time.time() - start_time
